@@ -1,0 +1,1 @@
+supabase db pwd: a+*a5SirStmF8db
