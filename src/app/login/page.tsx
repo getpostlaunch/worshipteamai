@@ -1,10 +1,12 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { supabase } from '@/utils/supabaseClient';
 
-export default function LoginPage() {
+export const dynamic = 'force-dynamic';
+
+function LoginInner() {
   const router = useRouter();
   const params = useSearchParams();
   const redirectTo = params.get('redirect') || '/app';
@@ -32,8 +34,22 @@ export default function LoginPage() {
     <div style={{ maxWidth: 420 }}>
       <h1>Login</h1>
       <form onSubmit={submit} style={{ display: 'grid', gap: 12 }}>
-        <input type="email" placeholder="Email" value={email} onChange={(e)=>setEmail(e.target.value)} required style={{ padding: 8, border: '1px solid #ccc' }} />
-        <input type="password" placeholder="Password" value={pw} onChange={(e)=>setPw(e.target.value)} required style={{ padding: 8, border: '1px solid #ccc' }} />
+        <input
+          type="email"
+          placeholder="Email"
+          value={email}
+          onChange={(e)=>setEmail(e.target.value)}
+          required
+          style={{ padding: 8, border: '1px solid #ccc' }}
+        />
+        <input
+          type="password"
+          placeholder="Password"
+          value={pw}
+          onChange={(e)=>setPw(e.target.value)}
+          required
+          style={{ padding: 8, border: '1px solid #ccc' }}
+        />
         <button type="submit" style={{ padding: '10px 12px' }}>Sign in</button>
       </form>
       <div style={{ marginTop: 12, display: 'flex', gap: 12 }}>
@@ -42,5 +58,13 @@ export default function LoginPage() {
       </div>
       {msg && <p style={{ marginTop: 12, color: 'crimson' }}>{msg}</p>}
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={null}>
+      <LoginInner />
+    </Suspense>
   );
 }
