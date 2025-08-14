@@ -1,17 +1,25 @@
 import { NextResponse } from 'next/server';
 import { createServerSupabase } from '@/utils/supabase/server';
 
-export async function POST(
-  req: Request,
-  { params }: { params: { orgId: string } }
-) {
+export async function POST(req: Request, ctx: any) {
   const supabase = await createServerSupabase();
 
-  const { data: { user }, error: authErr } = await supabase.auth.getUser();
+  // auth
+  const {
+    data: { user },
+    error: authErr,
+  } = await supabase.auth.getUser();
   if (authErr || !user) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }
 
+  // params
+  const orgId = (ctx?.params?.orgId as string) ?? '';
+  if (!orgId) {
+    return NextResponse.json({ error: 'orgId missing' }, { status: 400 });
+  }
+
+  // body
   let email = '';
   try {
     const body = await req.json();
@@ -21,11 +29,11 @@ export async function POST(
     return NextResponse.json({ error: 'email required' }, { status: 400 });
   }
 
-  // (optional) verify membership/role here before inserting
+  // (optional) verify membership/role here
 
   const { error } = await supabase
     .from('org_invites')
-    .insert({ org_id: params.orgId, email, invited_by: user.id });
+    .insert({ org_id: orgId, email, invited_by: user.id });
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 400 });
