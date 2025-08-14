@@ -115,8 +115,8 @@ export default function SelectedSongPlayer({ id }: Props) {
   return (
     <div>
       <h1 className="text-gray-100 text-xl font-semibold">{song.title || 'Player'}</h1>
-      {/* The browser will allow audio after you click Play; those autoplay warnings are expected */}
-      <AudioPractice src={src} />
+      {/* Practice is the canonical view */}
+      <AudioPractice src={src} songId={song.id} />
     </div>
   );
 }

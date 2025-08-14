@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/utils/supabaseClient';
-import FileLoader from '@/components/AudioPractice/FileLoader';
+import FileLoader from '@/components/FileLoader';
 
 export default function UploadBox() {
   const [msg, setMsg] = useState<string>('');

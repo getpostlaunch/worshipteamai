@@ -5,7 +5,8 @@ import WaveSurfer from 'wavesurfer.js';
 import Regions from 'wavesurfer.js/dist/plugins/regions.esm.js';
 import * as Tone from 'tone';
 
-type Props = { src?: string };
+// ---------- Types ----------
+type Props = { src: string; songId?: string };
 
 // Narrow types for the regions plugin
 type Region = {
@@ -16,6 +17,7 @@ type Region = {
   setOptions: (opts: any) => void;
   data?: Record<string, any>;
 };
+
 type RegionsPlugin = {
   addRegion: (opts: {
     start: number;
@@ -36,10 +38,12 @@ type RegionsPlugin = {
   ) => void;
 };
 
+// ---------- Constants ----------
 const COLOR_DEFAULT = 'rgba(240,79,35,0.25)'; // brand-1 orange on dark
 const COLOR_ACTIVE = 'rgba(240,79,35,0.45)';
 
-export default function AudioPractice({ src }: Props) {
+// ---------- Component ----------
+export default function AudioPractice({ src, songId }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const wsRef = useRef<WaveSurfer | null>(null);
   const regionsRef = useRef<RegionsPlugin | null>(null);
@@ -60,8 +64,50 @@ export default function AudioPractice({ src }: Props) {
   const loopOnRef = useRef(false);
   const loopRegionIdRef = useRef<string | null>(null);
 
+  // map WS region.id -> server region id (for persistence)
+  const serverIdByWsIdRef = useRef<Map<string, string>>(new Map());
+
   useEffect(() => { loopOnRef.current = loopOn; }, [loopOn]);
   useEffect(() => { loopRegionIdRef.current = loopRegionId; }, [loopRegionId]);
+
+  // ---- API helpers (no-op when songId is undefined) ----
+  async function apiGetRegions() {
+    if (!songId) return [] as { id: string; label: string | null; start_sec: number; end_sec: number; loop: boolean; color: string | null }[];
+    const res = await fetch(`/api/songs/${songId}/regions`, { cache: 'no-store' });
+    const j = await res.json();
+    if (!res.ok) throw new Error(j.error || 'Failed to load regions');
+    return j.regions as { id: string; label: string | null; start_sec: number; end_sec: number; loop: boolean; color: string | null }[];
+  }
+  async function apiCreateRegion(payload: { label: string | null; start_sec: number; end_sec: number; loop: boolean; color: string | null }) {
+    if (!songId) return { id: '' } as { id: string; label?: string | null; start_sec?: number; end_sec?: number; loop?: boolean; color?: string | null }; // local-only
+    const res = await fetch(`/api/songs/${songId}/regions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const j = await res.json();
+    if (!res.ok) throw new Error(j.error || 'Failed to create region');
+    return j.region as { id: string; label: string | null; start_sec: number; end_sec: number; loop: boolean; color: string | null };
+  }
+  async function apiUpdateRegion(serverId: string, patch: Partial<{ label: string | null; start_sec: number; end_sec: number; loop: boolean; color: string | null }>) {
+    if (!songId || !serverId) return { id: serverId };
+    const res = await fetch(`/api/regions/${serverId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    });
+    const j = await res.json();
+    if (!res.ok) throw new Error(j.error || 'Failed to update region');
+    return j.region as { id: string };
+  }
+  async function apiDeleteRegion(serverId: string) {
+    if (!songId || !serverId) return;
+    const res = await fetch(`/api/regions/${serverId}`, { method: 'DELETE' });
+    if (!res.ok) {
+      const j = await res.json().catch(() => ({}));
+      throw new Error(j.error || 'Failed to delete region');
+    }
+  }
 
   async function ensureAudioUnlocked() {
     if (unlockedRef.current) return;
@@ -92,7 +138,37 @@ export default function AudioPractice({ src }: Props) {
       plugins: [regionsPluginInstance],
     });
 
-    ws.on('ready', () => setReady(true));
+    ws.on('ready', async () => {
+      setReady(true);
+      // Load saved regions and render them
+      try {
+        const saved = await apiGetRegions();
+        saved.forEach((r) => {
+          const wsRegion = regions.addRegion({
+            start: r.start_sec,
+            end: r.end_sec,
+            color: COLOR_DEFAULT,
+            drag: true,
+            resize: true,
+          });
+          // label/content
+          const content = makeContentEl(wsRegion, r.label || 'Region', /*preloaded*/ true);
+          wsRegion.setOptions({ content });
+          wsRegion.data = { ...(wsRegion.data || {}), name: r.label || 'Region', preloaded: true };
+          // map server id
+          serverIdByWsIdRef.current.set(wsRegion.id, r.id);
+          // restore loop visual state (don’t auto-start playback)
+          if (r.loop) {
+            setLoopRegionId(wsRegion.id);
+            setLoopOn(true);
+          }
+        });
+        applyRegionColors();
+      } catch {
+        // ignore load failure; RLS or empty
+      }
+    });
+
     ws.on('play', () => setIsPlaying(true));
     ws.on('pause', () => setIsPlaying(false));
     ws.on('finish', () => setIsPlaying(false));
@@ -104,12 +180,19 @@ export default function AudioPractice({ src }: Props) {
       applyRegionColors();
     });
 
-    // If a looping region is deleted, stop the loop immediately
-    regions.on('region-removed', (r: Region) => {
-      const wsLocal = wsRef.current;
-      if (!wsLocal) return;
+    // Persist on update (drag/resize)
+    regions.on('region-updated', async (r: Region) => {
+      const serverId = serverIdByWsIdRef.current.get(r.id);
+      if (!serverId) return; // created but not saved yet; creation handler will save
+      try {
+        await apiUpdateRegion(serverId, { start_sec: r.start, end_sec: r.end });
+      } catch { /* noop */ }
+    });
 
-      if (loopOnRef.current && loopRegionIdRef.current === r.id) {
+    // If a looping region is deleted, stop the loop immediately & persist deletion
+    regions.on('region-removed', async (r: Region) => {
+      const wsLocal = wsRef.current;
+      if (loopOnRef.current && loopRegionIdRef.current === r.id && wsLocal) {
         if (loopHandlerRef.current) {
           wsLocal.un('timeupdate', loopHandlerRef.current as any);
           loopHandlerRef.current = null;
@@ -122,6 +205,29 @@ export default function AudioPractice({ src }: Props) {
         applyRegionColors();
       }
       setSelectedRegionId((prev) => (prev === r.id ? null : prev));
+
+      // delete server record (if any)
+      const serverId = serverIdByWsIdRef.current.get(r.id);
+      if (serverId) {
+        try { await apiDeleteRegion(serverId); } catch {}
+        serverIdByWsIdRef.current.delete(r.id);
+      }
+    });
+
+    // Persist on creation (skip preloaded)
+    regions.on('region-created', async (r: Region) => {
+      const preloaded = !!r.data?.preloaded;
+      if (preloaded || !songId) return;
+      try {
+        const created = await apiCreateRegion({
+          label: (r.data?.name as string) || 'Region',
+          start_sec: r.start,
+          end_sec: r.end,
+          loop: false,
+          color: null,
+        });
+        serverIdByWsIdRef.current.set(r.id, created.id);
+      } catch { /* noop */ }
     });
 
     wsRef.current = ws;
@@ -138,8 +244,9 @@ export default function AudioPractice({ src }: Props) {
       el?.removeEventListener('pointerdown', unlockOnce);
       wsRef.current = null;
       regionsRef.current = null;
+      serverIdByWsIdRef.current.clear();
     };
-  }, [src]);
+  }, [src, songId]);
 
   // Tone cleanup
   useEffect(() => {
@@ -172,17 +279,14 @@ export default function AudioPractice({ src }: Props) {
   };
 
   // Build region controls element (label + Loop + Delete)
-  const makeContentEl = (region: Region, initialText: string) => {
+  const makeContentEl = (region: Region, initialText: string, preloaded = false) => {
     const wrap = document.createElement('div');
-    wrap.className = [
-      // container
-      'inline-flex items-center gap-2 pointer-events-auto select-none',
-    ].join(' ');
+    wrap.className = 'inline-flex items-center gap-2 pointer-events-auto select-none';
 
     // label
     const label = document.createElement('span');
     label.textContent = initialText;
-    label.title = 'Double‑click to rename';
+    label.title = 'Double-click to rename';
     label.className = [
       'text-xs',
       'bg-neutral-800',
@@ -193,6 +297,18 @@ export default function AudioPractice({ src }: Props) {
       'whitespace-nowrap',
       'cursor-text',
     ].join(' ');
+
+    const commit = async () => {
+      label.contentEditable = 'false';
+      const name = (label.textContent || '').trim() || 'Region';
+      label.textContent = name;
+      region.data = { ...(region.data || {}), name };
+      // persist rename
+      const serverId = serverIdByWsIdRef.current.get(region.id);
+      if (serverId) {
+        try { await apiUpdateRegion(serverId, { label: name }); } catch {}
+      }
+    };
 
     const enableEdit = () => {
       label.contentEditable = 'true';
@@ -205,12 +321,6 @@ export default function AudioPractice({ src }: Props) {
         sel.removeAllRanges();
         sel.addRange(range);
       }
-    };
-    const commit = () => {
-      label.contentEditable = 'false';
-      const name = (label.textContent || '').trim() || 'Region';
-      label.textContent = name;
-      region.data = { ...(region.data || {}), name };
     };
     label.addEventListener('dblclick', (e) => { e.stopPropagation(); enableEdit(); });
     label.addEventListener('keydown', (e) => {
@@ -259,6 +369,8 @@ export default function AudioPractice({ src }: Props) {
         loopBtn.classList.add('bg-neutral-900');
       }
     };
+
+    // initial state
     setLoopBtnActive(loopOnRef.current && loopRegionIdRef.current === region.id);
 
     loopBtn.addEventListener('click', async (e) => {
@@ -282,6 +394,10 @@ export default function AudioPractice({ src }: Props) {
         resetAllLoopButtons();
         setLoopBtnActive(false);
         applyRegionColors();
+
+        // persist loop=false
+        const serverId = serverIdByWsIdRef.current.get(region.id);
+        if (serverId) { try { await apiUpdateRegion(serverId, { loop: false }); } catch {} }
         return;
       }
 
@@ -309,6 +425,10 @@ export default function AudioPractice({ src }: Props) {
       ws.on('timeupdate', handler);
 
       applyRegionColors();
+
+      // persist loop=true
+      const serverId = serverIdByWsIdRef.current.get(region.id);
+      if (serverId) { try { await apiUpdateRegion(serverId, { loop: true }); } catch {} }
     });
 
     // delete button
@@ -349,7 +469,7 @@ export default function AudioPractice({ src }: Props) {
       }
 
       if (selectedRegionId === region.id) setSelectedRegionId(null);
-      region.remove();
+      region.remove(); // region-removed will call DELETE if serverId exists
     });
 
     // show buttons on region hover
@@ -368,6 +488,28 @@ export default function AudioPractice({ src }: Props) {
     wrap.appendChild(label);
     wrap.appendChild(loopBtn);
     wrap.appendChild(delBtn);
+
+    // When this content is attached to a *new* region (user-created),
+    // immediately persist with default name, then store server id.
+    if (!preloaded && songId) {
+      queueMicrotask(async () => {
+        // Guard against double-create if the 'region-created' handler already saved it
+        if (serverIdByWsIdRef.current.has(region.id)) return;
+        try {
+          const created = await apiCreateRegion({
+            label: initialText || 'Region',
+            start_sec: region.start,
+            end_sec: region.end,
+            loop: false,
+            color: null,
+          });
+          if (created?.id) {
+            serverIdByWsIdRef.current.set(region.id, created.id);
+          }
+        } catch {}
+      });
+    }
+
     return wrap;
   };
 
@@ -412,7 +554,7 @@ export default function AudioPractice({ src }: Props) {
   const deleteSelected = () => {
     if (!regionsRef.current || !selectedRegionId) return;
     const r = regionsRef.current.getRegions().find((x) => x.id === selectedRegionId);
-    r?.remove(); // region-removed listener handles loop cleanup + selection reset
+    r?.remove(); // region-removed listener handles loop cleanup + DELETE
   };
 
   const clearRegions = () => {
@@ -447,6 +589,9 @@ export default function AudioPractice({ src }: Props) {
       setLoopRegionId(null);
       resetAllLoopButtons();
       applyRegionColors();
+
+      const serverId = serverIdByWsIdRef.current.get(r.id);
+      if (serverId) { try { await apiUpdateRegion(serverId, { loop: false }); } catch {} }
       return;
     }
 
@@ -469,6 +614,9 @@ export default function AudioPractice({ src }: Props) {
     loopHandlerRef.current = handler;
     ws.on('timeupdate', handler);
     applyRegionColors();
+
+    const serverId = serverIdByWsIdRef.current.get(r.id);
+    if (serverId) { try { await apiUpdateRegion(serverId, { loop: true }); } catch {} }
   };
 
   const toggleMetronome = async () => {

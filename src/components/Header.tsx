@@ -1,156 +1,230 @@
 'use client';
 
-import Link from 'next/link';
-import { usePathname } from 'next/navigation';
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
+import Image from 'next/image';
+import OrgSwitcher from "@/components/OrgSwitcher";
 
-const nav = [
-  { href: '/app', label: 'App' },
-  { href: '/how-tos', label: 'How-tos' },
+type User = {
+  name: string;
+  email: string;
+  avatarUrl?: string | null;
+};
+
+type Props = {
+  user?: User | null; // show avatar + dropdown when present
+};
+
+const NAV = [
   { href: '/pricing', label: 'Pricing' },
   { href: '/blog', label: 'Blog' },
+  { href: '/projects', label: 'Projects' },
+  { href: '/calendar', label: 'Calendar' },
 ];
 
-export default function Header() {
+export default function Header({ user }: Props) {
   const [open, setOpen] = useState(false);
-  const pathname = usePathname();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+
+  const avatarSrc =
+    user?.avatarUrl && user.avatarUrl.trim() !== ''
+      ? user.avatarUrl
+      : '/assets/images/avatar.webp';
+
+  // close dropdown on outside click
+  useEffect(() => {
+    function onDocClick(e: MouseEvent) {
+      if (!menuRef.current) return;
+      if (!menuRef.current.contains(e.target as Node)) setMenuOpen(false);
+    }
+    document.addEventListener('mousedown', onDocClick);
+    return () => document.removeEventListener('mousedown', onDocClick);
+  }, []);
 
   return (
-    <header
-      style={{
-        position: 'sticky',
-        top: 0,
-        background: '#fff',
-        borderBottom: '1px solid #eee',
-        zIndex: 50,
-      }}
-    >
-      <div
-        style={{
-          maxWidth: 1440,
-          margin: '0 auto',
-          padding: '12px 16px',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: 12,
-        }}
-      >
-        <Link href="/" style={{ textDecoration: 'none', color: '#111' }}>
-          <strong style={{ fontSize: 18, letterSpacing: 0.2 }}>WorshipTeam AI</strong>
-        </Link>
-
-        {/* Desktop nav */}
-        <nav className="wtai-desktop-nav" style={{ display: 'none', gap: 16 }}>
-          {nav.map((item) => {
-            const active = pathname === item.href;
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                style={{
-                  textDecoration: 'none',
-                  color: active ? '#111' : '#222',
-                  fontWeight: active ? 600 : 500,
-                }}
+    <>
+      {/* Top bar */}
+      <header className="sticky top-0 z-50 bg-slate-900 text-white">
+        <div className="mx-auto max-w-[1440px] px-4 sm:px-6 lg:px-8">
+          <div className="flex h-16 items-center justify-between">
+            {/* Left: logo + desktop nav */}
+            <div className="flex items-center gap-8">
+              {/* Mobile: hamburger */}
+              <button
+                className="mr-1 inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-700 text-slate-300 hover:bg-slate-800 lg:hidden"
+                aria-label="Open menu"
+                onClick={() => setOpen(true)}
               >
-                {item.label}
-              </Link>
-            );
-          })}
-          <Link href="/login" style={{ textDecoration: 'none', color: '#111', fontWeight: 600 }}>
-            Login
-          </Link>
-        </nav>
+                {/* hamburger icon */}
+                <span className="block h-0.5 w-5 bg-current"></span>
+                <span className="block h-0.5 w-5 bg-current mt-1.5"></span>
+                <span className="block h-0.5 w-5 bg-current mt-1.5"></span>
+              </button>
 
-        {/* Mobile menu button */}
-        <button
-          aria-label="Menu"
-          onClick={() => setOpen((v) => !v)}
-          className="wtai-mobile-button"
-          style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            width: 36,
-            height: 36,
-            borderRadius: 8,
-            background: '#fff',
-            border: '1px solid #e5e5e5',
-            boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
-          }}
-        >
-          {/* Simple hamburger */}
-          <span
-            aria-hidden
-            style={{
-              width: 18,
-              height: 2,
-              background: '#111',
-              display: 'block',
-              position: 'relative',
-            }}
-          >
-            <span
-              style={{
-                position: 'absolute',
-                left: 0,
-                top: -6,
-                width: 18,
-                height: 2,
-                background: '#111',
-              }}
-            />
-            <span
-              style={{
-                position: 'absolute',
-                left: 0,
-                top: 6,
-                width: 18,
-                height: 2,
-                background: '#111',
-              }}
-            />
-          </span>
-        </button>
-      </div>
+              {/* Logo */}
+              <a href="/" className="flex items-center gap-2">
+                <Image src="/assets/images/logo.svg" alt="WorshipTeam AI" width={100} height={40} />
+              </a>
 
-      {/* Mobile nav drawer */}
-      {open && (
-        <div style={{ borderTop: '1px solid #eee', background: '#fff' }}>
-          <nav
-            style={{
-              maxWidth: 1440,
-              margin: '0 auto',
-              padding: '8px 16px 16px',
-              display: 'grid',
-              gap: 8,
-            }}
-          >
-            {nav.map((item) => (
-              <Link
-                key={item.href}
-                href={item.href}
-                onClick={() => setOpen(false)}
-                style={{ textDecoration: 'none', color: '#111', padding: '8px 0' }}
-              >
-                {item.label}
-              </Link>
-            ))}
-            <Link href="/login" onClick={() => setOpen(false)} style={{ textDecoration: 'none', color: '#111' }}>
-              Login
-            </Link>
-          </nav>
+              {/* Desktop nav */}
+              <nav className="hidden lg:flex items-center gap-8">
+                {NAV.map((n) => (
+                  <a
+                  key={n.href}
+                  href={n.href}
+                  className="text-slate-300 hover:text-white hover:bg-slate-800 transition rounded-xl px-4 py-2"
+                  >
+                    {n.label}
+                  </a>
+                ))}
+              </nav>
+            </div>
+
+            {/* Right: CTA + (desktop avatar dropdown when logged in) */}
+            <div className="flex items-center gap-4">
+              {!user && (
+                <>
+                  <a
+                    href="/login"
+                    className="inline-flex items-center gap-2 px-4 py-2 text-white"
+                  >
+                    <span className="font-regular">Login</span>
+                  </a>
+                  <a
+                    href="/signup"
+                    className="inline-flex items-center gap-2 rounded-xl bg-indigo-500 px-4 py-2 text-white shadow hover:bg-indigo-400 transition"
+                  >
+                    <span className="font-bold">Try Free</span>
+                  </a>
+                </>
+              )}
+
+              {user && (
+                <>
+                  {/* App button replaces Try Free */}
+                  <OrgSwitcher />
+                  <a
+                    href="/app"
+                    className="inline-flex items-center gap-2 rounded-xl bg-indigo-500 px-4 pt-2 pb-2 pr-8 pl-8 text-white shadow hover:bg-indigo-400 transition"
+                  >
+                    <span className="font-bold">App</span>
+                  </a>
+
+                  {/* Desktop avatar + dropdown */}
+                  <div className="relative hidden lg:block mt-1" ref={menuRef}>
+                    <button
+                      onClick={() => setMenuOpen(v => !v)}
+                      aria-haspopup="menu"
+                      aria-expanded={menuOpen}
+                      className="cursor-pointer inline-flex h-10 w-10 overflow-hidden rounded-full ring-1 ring-slate-700 hover:ring-slate-500"
+                    >
+                      <img src={avatarSrc} alt={user.name || 'User'} className="h-full w-full object-cover" />
+                    </button>
+
+                    {menuOpen && (
+                      <div
+                        role="menu"
+                        className="absolute right-0 mt-2 w-48 rounded-xl border border-slate-800 bg-slate-900/95 shadow-xl backdrop-blur p-2"
+                      >
+                        <a href="/app/account" className="block rounded-lg px-3 py-2 text-slate-200 hover:bg-slate-800" role="menuitem">
+                          Account
+                        </a>
+                        <a href="/app/billing" className="block rounded-lg px-3 py-2 text-slate-200 hover:bg-slate-800" role="menuitem">
+                          Billing
+                        </a>
+                        <a href="/logout" className="block rounded-lg px-3 py-2 text-slate-200 hover:bg-slate-800" role="menuitem">
+                          Logout
+                        </a>
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
         </div>
-      )}
+      </header>
 
-      {/* Tiny CSS to swap desktop/mobile */}
-      <style>{`
-        @media (min-width: 768px) {
-          .wtai-desktop-nav { display: inline-flex !important; }
-          .wtai-mobile-button { display: none !important; }
-        }
-      `}</style>
-    </header>
+      {/* Mobile slide-over */}
+      <div
+        className={[
+          'fixed inset-0 z-[60] lg:hidden transition',
+          open ? 'pointer-events-auto' : 'pointer-events-none',
+        ].join(' ')}
+      >
+        {/* Backdrop */}
+        <div
+          className={['absolute inset-0 bg-black/40 transition-opacity', open ? 'opacity-100' : 'opacity-0'].join(' ')}
+          onClick={() => setOpen(false)}
+        />
+        {/* Panel */}
+        <aside
+          className={[
+            'absolute left-0 top-0 h-full w-[88%] max-w-sm rounded-2xl bg-slate-900 text-white shadow-2xl',
+            'transition-transform duration-300',
+            open ? 'translate-x-0' : '-translate-x-full',
+          ].join(' ')}
+        >
+          <div className="p-4 flex items-center justify-between">
+            <button
+              className="inline-flex h-12 w-12 items-center justify-center rounded-2xl border border-slate-700 text-slate-300"
+              onClick={() => setOpen(false)}
+              aria-label="Close menu"
+            >
+              {/* X icon */}
+              <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="1.8">
+                <path d="M18 6L6 18M6 6l12 12" />
+              </svg>
+            </button>
+
+            {/* Logo */}
+            <div className="flex items-center gap-2">
+              <Image src="/assets/images/logo.svg" alt="WorshipTeam AI" width={100} height={40} />
+            </div>
+          </div>
+
+          <div className="px-4">
+            <nav className="space-y-3">
+              {NAV.map((n, i) => (
+                <a
+                  key={n.href}
+                  href={n.href}
+                  className={[
+                    'block rounded-xl px-4 py-3 text-lg text-slate-200 hover:bg-slate-800',
+                    i === 0 && 'bg-slate-800',
+                  ].join(' ')}
+                  onClick={() => setOpen(false)}
+                >
+                  {n.label}
+                </a>
+              ))}
+            </nav>
+
+            {/* Divider */}
+            <div className="my-6 h-px bg-slate-800" />
+
+            {/* User block (unchanged for mobile) */}
+            {user && (
+              <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4">
+                <div className="flex items-center gap-3">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={avatarSrc} alt={user.name || 'User'} className="h-12 w-12 rounded-full object-cover" />
+                  <div className="min-w-0">
+                    <p className="truncate text-base font-semibold">{user.name}</p>
+                    <p className="truncate text-sm text-slate-400">{user.email}</p>
+                  </div>
+                </div>
+
+                <div className="mt-4 space-y-3 text-slate-300">
+                  <a href="/account" className="block px-2 py-2 rounded-lg hover:bg-slate-800">Your profile</a>
+                  <a href="/settings" className="block px-2 py-2 rounded-lg hover:bg-slate-800">Settings</a>
+                  <a href="/logout" className="block px-2 py-2 rounded-lg hover:bg-slate-800">Sign out</a>
+                </div>
+              </div>
+            )}
+          </div>
+        </aside>
+      </div>
+    </>
   );
 }
