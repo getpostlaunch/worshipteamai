@@ -1,6 +1,10 @@
 import { NextResponse } from 'next/server';
 import { createServerSupabase } from '@/utils/supabase/server';
 
+type Instrument = { name: string };
+const toNames = (ins: Instrument | Instrument[] | null | undefined) =>
+  Array.isArray(ins) ? ins.map(i => i?.name).filter(Boolean) : ins?.name ? [ins.name] : [];
+
 export async function GET(_req: Request, { params }: { params: { gigId: string } }) {
   const supabase = await createServerSupabase();
 
@@ -17,7 +21,7 @@ export async function GET(_req: Request, { params }: { params: { gigId: string }
   ]);
   if (giErr || instErr) return NextResponse.json({ error: giErr?.message || instErr?.message }, { status: 400 });
 
-  const names = (insts || []).map(r => r.instruments?.name).filter(Boolean);
+  const names = (insts ?? []).flatMap(r => toNames(r?.instruments));
   return NextResponse.json({ gig, instruments: gi || [], instrument_names: names });
 }
 
