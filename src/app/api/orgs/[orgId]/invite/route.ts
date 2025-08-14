@@ -1,59 +1,35 @@
-"use client";
-import { useState } from "react";
+import { NextResponse } from 'next/server';
+import { createServerSupabase } from '@/utils/supabase/server';
 
-export default function InviteForm({ orgId }: { orgId: string }) {
-  const [email, setEmail] = useState("");
-  const [role, setRole] = useState<"member"|"leader">("member");
-  const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState<string | null>(null);
+export async function POST(
+  req: Request,
+  { params }: { params: { orgId: string } }
+) {
+  const supabase = await createServerSupabase();
 
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setBusy(true);
-    setMsg(null);
-    const res = await fetch(`/api/orgs/${orgId}/invite`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, role }),
-    });
-    const data = await res.json();
-    setBusy(false);
-    if (!res.ok) {
-      setMsg(data.error || "Failed to invite");
-      return;
-    }
-    setEmail("");
-    setRole("member");
-    setMsg("Invitation sent.");
-    if (typeof window !== "undefined") window.location.reload();
-  };
+  const { data: { user }, error: authErr } = await supabase.auth.getUser();
+  if (authErr || !user) {
+    return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+  }
 
-  return (
-    <form onSubmit={submit} className="flex items-center gap-2">
-      <input
-        type="email"
-        required
-        placeholder="Invite email"
-        className="w-60 rounded-xl border border-slate-700 bg-slate-900/60 px-3 py-2 text-sm text-white placeholder:text-slate-500 focus:border-white"
-        value={email}
-        onChange={(e) => setEmail(e.target.value)}
-      />
-      <select
-        className="rounded-xl border border-slate-700 bg-slate-900/60 px-3 py-2 text-sm text-white focus:border-white"
-        value={role}
-        onChange={(e) => setRole(e.target.value as any)}
-      >
-        <option value="member">Member</option>
-        <option value="leader">Leader</option>
-      </select>
-      <button
-        type="submit"
-        disabled={busy}
-        className="rounded-xl bg-brand-1 px-3 py-2 text-sm text-white hover:bg-brand-2 disabled:opacity-60"
-      >
-        {busy ? "Sending…" : "Invite"}
-      </button>
-      {msg && <span className="text-xs text-slate-400">{msg}</span>}
-    </form>
-  );
+  let email = '';
+  try {
+    const body = await req.json();
+    email = String(body?.email || '').trim();
+  } catch {}
+  if (!email) {
+    return NextResponse.json({ error: 'email required' }, { status: 400 });
+  }
+
+  // (optional) verify membership/role here before inserting
+
+  const { error } = await supabase
+    .from('org_invites')
+    .insert({ org_id: params.orgId, email, invited_by: user.id });
+
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 400 });
+  }
+
+  return NextResponse.json({ ok: true });
 }
