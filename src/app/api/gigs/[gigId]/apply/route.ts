@@ -1,13 +1,10 @@
+// src/app/api/gigs/[gigId]/apply/route.ts
 import { NextResponse } from 'next/server';
 import { createServerSupabase } from '@/utils/supabase/server';
 
-export async function POST(
-  req: Request,
-  { params }: { params: { gigId: string } }
-) {
+export async function POST(req: Request, ctx: any) {
   const supabase = await createServerSupabase();
 
-  // auth
   const {
     data: { user },
     error: authErr,
@@ -16,19 +13,25 @@ export async function POST(
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }
 
-  // optional body (e.g., a note/message)
+  // params
+  const gigId = (ctx?.params?.gigId as string) ?? '';
+  if (!gigId) {
+    return NextResponse.json({ error: 'gigId missing' }, { status: 400 });
+  }
+
+  // optional body
   let note: string | null = null;
   try {
     const body = await req.json();
-    note = typeof body?.note === 'string' ? body.note.trim() : null;
+    if (typeof body?.note === 'string') note = body.note.trim();
   } catch {
     // no body is fine
   }
 
-  // If you have a `gig_applications` table: (gig_id, user_id, note, created_at)
+  // adjust table/columns to your schema
   const { error } = await supabase
     .from('gig_applications')
-    .insert({ gig_id: params.gigId, user_id: user.id, note });
+    .insert({ gig_id: gigId, user_id: user.id, note });
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 400 });
